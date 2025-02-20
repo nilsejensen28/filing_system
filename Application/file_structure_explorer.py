@@ -1,38 +1,6 @@
 '''
 This file is used to explore the file structure of a given directory.
 It generates a json file that represents the folder structure of the given directory.
-
-{
-    name: "Documents",
-    id: "0",
-    subfolders: [
-        {
-            name: "Work",
-            id: "1",
-            subfolders: [
-                {
-                    name: "Projects",
-                    id: "12",
-                    subfolders: []
-                }
-            ]    
-        },
-        {
-            name: "Personal",
-            id: "2",
-            subfolders: [
-                {
-                    name: "Vacation",
-                    id: "24",
-                    subfolders: []
-                }
-            ]
-        }
-    ]
-
-}
-
-
 '''
 
 import os
@@ -41,56 +9,116 @@ import logging
 
 LOGGING_LEVEL = logging.INFO
 
-def generate_folder_tree_recursive(folder, root=False):
-    logging.debug(f"Generating folder tree for folder: {os.path.basename(folder)}")
-    id = os.path.basename(folder).split('_')[0]
-    try:
-        int(id)
-    except ValueError:
-        if not root:
+
+'''
+This class represents a folder. It is a node in the folder tree.
+'''
+class Folder:
+    name : str #Name of the folder
+    id : str #ID of the folder
+    physical_location : str #Physical location of the folder
+    subfolders : list #List of subfolders of the folder
+    parent = None  #Parent folder of the folder
+
+    def __init__(self, name : str, id : str, physical_location="", parent=None):
+        self.name = name
+        self.id = id
+        self.physical_location = physical_location
+        self.subfolders = []
+        self.parent = parent
+
+    def add_subfolder(self, subfolder):
+        '''Add a subfolder to the folder'''
+        self.subfolders.append(subfolder)
+        subfolder.parent = self
+
+    def remove_subfolder(self, subfolder):
+        '''Remove a subfolder from the folder'''
+        self.subfolders.remove(subfolder)
+        subfolder.parent = None
+''' 
+
+This class represents a folder tree. It is a tree structure that represents the folder structure of a given directory.
+Every node in the tree is a Folder object.
+'''
+class FolderTree:
+    root = None #Top level folder of the folder tree
+
+    def __init__(self):
+        pass
+    
+    def generate_folder_tree_from_file(self, file : os.path):
+        '''Generate a folder tree from a json file'''
+        with open(file, 'r') as file:
+            json_dump = json.load(file)
+        self.root = self._generate_folder_tree_from_json_recursive(json_dump)
+
+    def _generate_folder_tree_from_json_recursive(self, json : dict) -> Folder:
+        '''Generate a folder tree from a json object'''
+        folder = Folder(json['name'], json['id'], json['physical_location'])
+        for subfolder in json['subfolders']:
+            folder.add_subfolder(self._generate_folder_tree_from_json_recursive(subfolder))
+        return folder
+    
+    def generate_folder_tree_from_path(self, path : os.path):
+        '''Generate a folder tree from a given path (directory)'''
+        self.root = self._generate_folder_tree_from_path_recursive(path)
+        pass 
+
+    def _generate_folder_tree_from_path_recursive(self, path : os.path, ignore_non_numbered=True) -> Folder:
+        '''Generate a folder tree from a given folder'''
+        #Check if the folder is a directory
+        if not os.path.isdir(path):
             return None
-    if len(os.path.basename(folder).split('_')) == 1:
-        if not root:
-            return None
-        id = ""
-        name = os.path.basename(folder)
-    else:
-        name = " ".join(os.path.basename(folder).split('_')[1:])
-    children = []
-    for subfolder in os.listdir(folder):
-        subfolder_path = os.path.join(folder, subfolder)
-        if os.path.isdir(subfolder_path):
-            child = generate_folder_tree_recursive(subfolder_path)
-            if child:
-                children.append(child)
-    children.sort(key=lambda x: int(x['id']))
-    logging.debug(f"Folder tree for folder {os.path.basename(folder)} generated")
-    return {
-        'name': name,
-        'id': id,
-        'subfolders': children
-    }
+        #Create a folder object
+        full_name = os.path.basename(path)
+        id = full_name.split('_')[0]
+        try :
+            int(id)
+            name = " ".join(full_name.split('_')[1:])
+        except ValueError:
+            if not ignore_non_numbered:
+                id = ""
+                name = full_name
+            else:
+                return None
+        folder = Folder(name, id)
+        #Iterate over the subfolders
+        for child in os.listdir(path):
+            subfolder = self._generate_folder_tree_from_path_recursive(os.path.join(path, child))
+            if subfolder:
+                folder.add_subfolder(subfolder)
+        return folder
 
-def generate_folder_tree_file(root_folder, output_file, label_type=False):
-    logging.info(f"Generating folder tree for folder: {root_folder}")
-    folder_tree = generate_folder_tree_recursive(root_folder, root=True)
-    if label_type:
-        add_label_type_to_tree(folder_tree)
-    with open(output_file, 'w') as file:
-        file.write(json.dumps(folder_tree, indent=4, ensure_ascii=False))
-    logging.info(f"Folder tree generated and saved to {output_file}")
+    def export_to_file(self, file : os.path):
+        '''Export the folder tree to a json file'''
+        dict = self.generate_folder_tree_json()
+        with open(file, 'w') as file:
+            file.write(json.dumps(dict, indent=4, ensure_ascii=False))
 
-def add_label_type_to_tree(folder_tree):
-    folder_tree['physical_location'] = ""
-    for subfolder in folder_tree['subfolders']:
-        add_label_type_to_tree(subfolder)
-    #Reorder the json object for better readability
-    childen = folder_tree['subfolders']
-    folder_tree.pop('subfolders')
-    folder_tree['subfolders'] = childen
+    def generate_folder_tree_json(self) -> dict:
+        '''Generate a json object that represents the folder tree'''
+        return self._generate_folder_tree_json_recursive(self.root)
 
+    def _generate_folder_tree_json_recursive(self, folder : Folder) -> dict:
+        '''Generate a json object that represents the folder tree'''
+        json = {
+            'name': folder.name,
+            'id': folder.id,
+            'physical_location': folder.physical_location,
+            'subfolders': [
+                self._generate_folder_tree_json_recursive(subfolder) for subfolder in folder.subfolders
+            ]
+        }
+        return json
+       
 def main():
-    generate_folder_tree_file('/home/nils/Documents/Documents', 'Results/folder_tree.json', label_type=True)
+    folder_tree = FolderTree()
+    folder_tree.generate_folder_tree_from_file("Results/folder_tree.json")
+    print(folder_tree.generate_folder_tree_json())
+    folder_tree_2 = FolderTree()
+    folder_tree_2.generate_folder_tree_from_path("0_Test")
+    print(folder_tree_2.generate_folder_tree_json())
 
 if __name__ == '__main__':
     logging.basicConfig(level=LOGGING_LEVEL)
