@@ -12,6 +12,12 @@ from abc import ABC, abstractmethod
 LOGGING_LEVEL = logging.DEBUG
 LATEX_TEMPLATE_PATH = 'Templates/folder_structure_template.tex'
 LABEL_TYPES = ["hanging", "sticker", "outside_folder", "inside_folder", "none"]
+TEMPLATES = {
+    "hanging": "Templates/hanging_folder_label_template.tex",
+    "sticker": "Templates/sticker_label_template.tex",
+    "outside_folder": "",
+    "inside_folder": ""
+}
 
 '''
 This class represents a folder. It is a node in the folder tree.
@@ -164,36 +170,64 @@ class FolderTree:
         content += "]"
         return content
     
-    def generate_labels(self, output_dir : os.path):
+    def generate_labels(self, output_dir : os.path, generate_pdf=True):
         '''Generate labels for the folders'''
-        labels = {}
+        label_str = {f"{label_type}": "" for label_type in LABEL_TYPES}
+        self._generate_labels_recursively(self.root, label_str)
+        for label_type in LABEL_TYPES:
+            if label_type not in TEMPLATES.keys():
+                continue
+            if not TEMPLATES[label_type]:
+                continue
+            #Copy the template
+            with open(TEMPLATES[label_type], 'r') as file:
+                latex_template = file.read()
+            latex_template = latex_template.replace('##CONTENT##', label_str[label_type])
+            output_file = os.path.join(output_dir, label_type + ".tex")
+            with open(output_file, 'w') as file:
+                file.write(latex_template)
+            if generate_pdf:
+                subprocess.run(['xelatex', output_file, f'-interaction=nonstopmode -output-directory={output_dir}'])
+                logging.info(f"PDF generated and saved to {output_file.replace('.tex', '.pdf')}")
+                subprocess.run(['rm', output_file.replace('.tex', '.aux')])
+                if not LOGGING_LEVEL == logging.DEBUG:
+                    subprocess.run(['rm', output_file.replace('.tex', '.log')])
 
 
-class AbstractLabel(ABC):
-    folder: Folder
-    template_file: str
+    def _generate_labels_recursively(self, folder, label_str):
+        match folder.label_type:
+            case "hanging":
+                label_str["hanging"] = label_str["hanging"] + hanging_label_to_latex(folder)
+            case "sticker":
+                label_str["sticker"] = label_str["sticker"] + hanging_label_to_latex(folder)
+            case "outside_folder":
+                pass
+            case "inside_folder":
+                pass
+            case "none":
+                pass
+            case _:
+                logging.error(f"{folder.label_type} is not a valid label type")
+        for subfolder in folder.subfolders:
+            self._generate_labels_recursively(subfolder, label_str)
 
-    def __init__(self, folder: Folder, type: str):
-        self.folder = folder
-    
-    @abstractmethod
-    def to_latex(self) -> str:
-        pass
+#--------------------------------------------------------------------------------------
+# Different types of label generation
+#--------------------------------------------------------------------------------------
 
-class HangingFolderLabel(AbstractLabel):
-    template_file = 'Templates/hanging_folder_label_template.tex'
+def hanging_label_to_latex(folder) -> str:
+    '''Generation of Hanging Labels'''
+    if folder.parent:
+        return f"\\customlabel{{{folder.id}}}{{{folder.parent.name}}}{{{folder.name}}} \n"
+    return f"\\customlabel{{{folder.id}}}{{}}{{{folder.name}}} \n"
 
-    def to_latex(self) -> str:
-        if self.folder.parent:
-            return f"\\customlabel{{{self.folder.id}}}{{{self.folder.parent.name}}}{{{self.folder.name}}}"
-        return f"\\customlabel{{{self.folder.id}}}{{}}{{{self.folder.name}}}"
-
+def sticker_label_to_latex(folder) -> str:
+    '''Generation of Stickers'''
+    if folder.parent:
+        return f"\\customlabel{{{folder.id}}}{{{folder.parent.name}}}{{{folder.name}}} \n"
+    return f"\\customlabel{{{folder.id}}}{{}}{{{folder.name}}} \n"
        
 def main():
-    folder_tree = FolderTree()
-    folder_tree.generate_folder_tree_from_path("/home/nils/Documents/Documents")
-    print(folder_tree.root)
-    folder_tree.export_to_file("Results/folder_tree.json")
     folder_tree_2 = FolderTree()
     folder_tree_2.generate_folder_tree_from_file("Results/folder_tree.json")
     print(folder_tree_2.generate_folder_tree_json())
@@ -201,9 +235,7 @@ def main():
     folder_tree_3.generate_folder_tree_from_path("0_Test")
     print(folder_tree_2.generate_folder_tree_json())
     folder_tree_3.generate_latex_export("folder_structure.tex")
-    folder = Folder("Test", "0")
-    label = HangingFolderLabel(folder, "hanging")
-    print(label.to_latex())
+    folder_tree_2.generate_labels(output_dir="Results")
 
 if __name__ == '__main__':
     logging.basicConfig(level=LOGGING_LEVEL)
