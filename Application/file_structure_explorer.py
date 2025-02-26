@@ -9,9 +9,9 @@ import logging
 import subprocess
 from abc import ABC, abstractmethod
 
-LOGGING_LEVEL = logging.INFO
+LOGGING_LEVEL = logging.DEBUG
 LATEX_TEMPLATE_PATH = 'Templates/folder_structure_template.tex'
-LABEL_TYPES = ["hanging", "sticker", "outside_folder", "inside_folder"]
+LABEL_TYPES = ["hanging", "sticker", "outside_folder", "inside_folder", "none"]
 
 '''
 This class represents a folder. It is a node in the folder tree.
@@ -19,13 +19,15 @@ This class represents a folder. It is a node in the folder tree.
 class Folder:
     name : str #Name of the folder
     id : str #ID of the folder
-    label_type : str #Physical location of the folder
+    label_type : str #Label type of the folder
     subfolders : list #List of subfolders of the folder
     parent = None  #Parent folder of the folder
 
     def __init__(self, name : str, id : str, label_type="", parent=None):
         self.name = name
         self.id = id
+        if not label_type:
+            label_type = "none"
         self.label_type = label_type
         self.subfolders = []
         self.parent = parent
@@ -53,6 +55,12 @@ class Folder:
             return False
         return True
     
+    def __str__(self):
+        return f"{self.id} - {self.name}"
+    
+    def sort_subfolders(self):
+        '''Sort the subfolders by id'''
+        self.subfolders = sorted(self.subfolders, key=lambda x: x.id)
 ''' 
 
 This class represents a folder tree. It is a tree structure that represents the folder structure of a given directory.
@@ -72,17 +80,17 @@ class FolderTree:
 
     def _generate_folder_tree_from_json_recursive(self, json : dict) -> Folder:
         '''Generate a folder tree from a json object'''
-        folder = Folder(json['name'], json['id'], json['physical_location'])
+        folder = Folder(json['name'], json['id'], json['label_type'])
         for subfolder in json['subfolders']:
             folder.add_subfolder(self._generate_folder_tree_from_json_recursive(subfolder))
         return folder
     
-    def generate_folder_tree_from_path(self, path : os.path):
+    def generate_folder_tree_from_path(self, path : os.path, ignore_non_numbered=True):
         '''Generate a folder tree from a given path (directory)'''
-        self.root = self._generate_folder_tree_from_path_recursive(path)
+        self.root = self._generate_folder_tree_from_path_recursive(path, ignore_non_numbered, root=True)
         pass 
 
-    def _generate_folder_tree_from_path_recursive(self, path : os.path, ignore_non_numbered=True) -> Folder:
+    def _generate_folder_tree_from_path_recursive(self, path : os.path, ignore_non_numbered=True, root=False) -> Folder:
         '''Generate a folder tree from a given folder'''
         #Check if the folder is a directory
         if not os.path.isdir(path):
@@ -94,7 +102,7 @@ class FolderTree:
             int(id)
             name = " ".join(full_name.split('_')[1:])
         except ValueError:
-            if not ignore_non_numbered:
+            if not ignore_non_numbered or root:
                 id = ""
                 name = full_name
             else:
@@ -102,9 +110,10 @@ class FolderTree:
         folder = Folder(name, id)
         #Iterate over the subfolders
         for child in os.listdir(path):
-            subfolder = self._generate_folder_tree_from_path_recursive(os.path.join(path, child))
+            subfolder = self._generate_folder_tree_from_path_recursive(os.path.join(path, child), ignore_non_numbered)
             if subfolder:
                 folder.add_subfolder(subfolder)
+        folder.sort_subfolders()
         return folder
 
     def export_to_file(self, file : os.path):
@@ -113,20 +122,24 @@ class FolderTree:
         with open(file, 'w') as file:
             file.write(json.dumps(dict, indent=4, ensure_ascii=False))
 
-    def generate_folder_tree_json(self) -> dict:
+    def generate_folder_tree_json(self, sort=True) -> dict:
         '''Generate a json object that represents the folder tree'''
-        return self._generate_folder_tree_json_recursive(self.root)
+        return self._generate_folder_tree_json_recursive(self.root, sort=sort)
 
-    def _generate_folder_tree_json_recursive(self, folder : Folder) -> dict:
+    def _generate_folder_tree_json_recursive(self, folder : Folder, sort=True) -> dict:
         '''Generate a json object that represents the folder tree'''
+        logging.debug(f"Generating json for folder {folder}")
         json = {
             'name': folder.name,
             'id': folder.id,
-            'physical_location': folder.physical_location,
+            'label_type': folder.label_type,
             'subfolders': [
-                self._generate_folder_tree_json_recursive(subfolder) for subfolder in folder.subfolders
+                self._generate_folder_tree_json_recursive(subfolder, sort=sort) for subfolder in folder.subfolders
             ]
         }
+        #Sort the subfolders by id
+        if sort:
+            json['subfolders'] = sorted(json['subfolders'], key=lambda x: x['id'])
         return json
     
     def generate_latex_export(self, output_file : os.path, generate_pdf=True):
@@ -178,12 +191,16 @@ class HangingFolderLabel(AbstractLabel):
        
 def main():
     folder_tree = FolderTree()
-    folder_tree.generate_folder_tree_from_file("Results/folder_tree.json")
-    print(folder_tree.generate_folder_tree_json())
+    folder_tree.generate_folder_tree_from_path("/home/nils/Documents/Documents")
+    print(folder_tree.root)
+    folder_tree.export_to_file("Results/folder_tree.json")
     folder_tree_2 = FolderTree()
-    folder_tree_2.generate_folder_tree_from_path("0_Test")
+    folder_tree_2.generate_folder_tree_from_file("Results/folder_tree.json")
     print(folder_tree_2.generate_folder_tree_json())
-    folder_tree_2.generate_latex_export("folder_structure.tex")
+    folder_tree_3 = FolderTree()
+    folder_tree_3.generate_folder_tree_from_path("0_Test")
+    print(folder_tree_2.generate_folder_tree_json())
+    folder_tree_3.generate_latex_export("folder_structure.tex")
     folder = Folder("Test", "0")
     label = HangingFolderLabel(folder, "hanging")
     print(label.to_latex())
