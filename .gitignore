@@ -1,4 +1,4 @@
 Results
-.pdf
-.aux
-.log
+*.pdf
+*.aux
+*.log
